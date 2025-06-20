@@ -1,38 +1,140 @@
-# Running Stable Diffusion 3 DreamBooth LoRA training under 16GB
+# training example for Stable Diffusion 3.5 (SD3.5)
 
-This is an **EDUCATIONAL** project that provides utilities for DreamBooth LoRA training for [Stable Diffusion 3 (SD3)](ttps://huggingface.co/papers/2403.03206) under 16GB GPU VRAM. This means you can successfully try out this project using a [free-tier Colab Notebook](https://colab.research.google.com/github/huggingface/diffusers/blob/main/examples/research_projects/sd3_lora_colab/sd3_dreambooth_lora_16gb.ipynb) instance. 🤗
+Task -- unconditional generation
+
+The `train_uncondition_sd3.py` script shows how to implement the training procedure and adapt it for [Stable Diffusion 3.5](https://huggingface.co/stabilityai/stable-diffusion-3.5-medium). We also provide a LoRA implementation in the `train_uncondition_lora_sd3.py` script.
 
 > [!NOTE]
-> SD3 is gated, so you need to make sure you agree to [share your contact info](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers) to access the model before using it with Diffusers. Once you have access, you need to log in so your system knows you’re authorized. Use the command below to log in:
+> As the model is gated, before using it with diffusers you first need to go to the [Stable Diffusion 3 Medium Hugging Face page](https://huggingface.co/stabilityai/stable-diffusion-3.5-medium), fill in the form and accept the gate. Once you are in, you need to log in so that your system knows you’ve accepted the gate. Use the command below to log in:
 
 ```bash
 huggingface-cli login
 ```
 
-This will also allow us to push the trained model parameters to the Hugging Face Hub platform.
+## Running locally with PyTorch
 
-For setup, inference code, and details on how to run the code, please follow the Colab Notebook provided above.
+### Installing the dependencies
 
-## How
+Before running the scripts, make sure to install the library's training dependencies:
 
-We make use of several techniques to make this possible:
+**Important**
 
-* Compute the embeddings from the instance prompt and serialize them for later reuse. This is implemented in the [`compute_embeddings.py`](./compute_embeddings.py) script. We use an 8bit (as introduced in [`LLM.int8()`](https://huggingface.co/papers/2208.07339)) T5 to reduce memory requirements to ~10.5GB.
-* In the `train_dreambooth_sd3_lora_miniature.py` script, we make use of:
-  * 8bit Adam for optimization through the `bitsandbytes` library.
-  * Gradient checkpointing and gradient accumulation.
-  * FP16 precision.
-  * Flash attention through `F.scaled_dot_product_attention()`.
+To make sure you can successfully run the latest versions of the example scripts, we highly recommend **installing from source** and keeping the install up to date as we update the example scripts frequently and install some example-specific requirements. To do this, execute the following steps in a new virtual environment:
 
-Computing the text embeddings is arguably the most memory-intensive part in the pipeline as SD3 employs three text encoders. If we run them in FP32, it will take about 20GB of VRAM. With FP16, we are down to 12GB.
+Then cd in the `/Polaris/sd3.5` folder and run
+```bash
+conda env create -f environment.yml
+```
+
+```bash
+git clone https://github.com/huggingface/diffusers
+cd diffusers
+pip install -e .
+```
+
+We provide two choices to run the training scrpts:
+
+### run with acclerate
 
 
-## Gotchas
+And initialize an [🤗Accelerate](https://github.com/huggingface/accelerate/) environment with:
 
-This project is educational. It exists to showcase the possibility of fine-tuning a big diffusion system on consumer GPUs. But additional components might have to be added to obtain state-of-the-art performance. Below are some commonly known gotchas that users should be aware of:
+```bash
+accelerate config
+```
+Or for a default accelerate configuration without answering questions about your environment
 
-* Training of text encoders is purposefully disabled.
-* Techniques such as prior-preservation is unsupported.
-* Custom instance captions for instance images are unsupported, but this should be relatively easy to integrate.
+```bash
+accelerate config default
+```
 
-Hopefully, this project gives you a template to extend it further to suit your needs.
+then run
+
+```bash
+bash train_uncon_acc.sh
+```
+
+### run with Deepspeed
+
+```bash
+bash train_uncon_ds.sh
+```
+
+
+
+### Dog toy example
+
+Now let's get our dataset. For this example we will use some dog images: https://huggingface.co/datasets/diffusers/dog-example.
+
+Let's first download it locally:
+
+```python
+from huggingface_hub import snapshot_download
+
+local_dir = "./dog"
+snapshot_download(
+    "diffusers/dog-example",
+    local_dir=local_dir, repo_type="dataset",
+    ignore_patterns=".gitattributes",
+)
+```
+
+### X-ray brain images example
+
+For this example we will use some Xray brain images: https://www.kaggle.com/datasets/kmader/siim-medical-images?select=tiff_images
+
+The images are converted into jpeg format. 
+
+### train with Accelerate
+ 
+Now, we can launch training using :
+
+```bash
+export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/dog"  # 改名为更通用的TRAIN_DATA_DIR
+export OUTPUT_DIR="trained-sd3"
+
+accelerate launch --num_processes=4 train_uncondition_sd3.py \
+  --pretrained_model_name_or_path="$MODEL_NAME" \
+  --train_data_dir="$TRAIN_DATA_DIR" \
+  --val_data_dir="$TRAIN_DATA_DIR" \
+  --output_dir="$OUTPUT_DIR" \
+  --resolution=512 \
+  --train_batch_size=4 \
+  --max_train_steps=20 \
+  --learning_rate=1e-4 \
+  --lr_scheduler="constant" \
+  --mixed_precision="bf16" \
+  --validation_steps=10 \
+```
+
+### train with Deepspeed
+
+Setup deepspeed configuration in the file `ds_config.json`
+
+
+Launch the training script `train_uncon_sd.sh` with deepspeed command
+
+```bash
+export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/train"  # 改名为更通用的TRAIN_DATA_DIR
+export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/val"  # 验证集路径
+export OUTPUT_DIR="trained-sd3"
+
+deepspeed --include localhost:0,1,2,3 --master_port=29501 train_uncondition_sd3_ds.py \
+  --deepspeed_config="ds_config.json" \
+  --pretrained_model_name_or_path="$MODEL_NAME" \
+  --train_data_dir="$TRAIN_DATA_DIR" \
+  --val_data_dir="$TRAIN_DATA_DIR_VAL" \
+  --output_dir="$OUTPUT_DIR" \
+  --resolution=512 \
+  --train_batch_size=4 \
+  --max_train_steps=40 \
+  --learning_rate=1e-5 \
+  --lr_scheduler="constant" \
+  --mixed_precision="bf16" \
+  --validation_steps=10 \
+```
+
+
+
