@@ -3,7 +3,7 @@ export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/do
 export OUTPUT_DIR="trained-sd3"
 
 
-accelerate launch --num_processes=4 train_uncondition_sd3.py \
+accelerate launch --num_processes=4 train_uncondition_sd3_acc.py \
   --pretrained_model_name_or_path="$MODEL_NAME" \
   --train_data_dir="$TRAIN_DATA_DIR" \
   --val_data_dir="$TRAIN_DATA_DIR" \
