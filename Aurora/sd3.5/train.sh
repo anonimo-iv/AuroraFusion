@@ -1,7 +1,7 @@
 # run on Aurora 
 export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
-export TRAIN_DATA_DIR="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/train"  # 改名为更通用的TRAIN_DATA_DIR
-export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/val"  # 验证集路径
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/train"  # 
+export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/val"  # validation data directory
 export OUTPUT_DIR="trained-sd3"
 export PYTORCH_ENABLE_XPU_FALLBACK=1
 

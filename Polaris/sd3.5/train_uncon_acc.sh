@@ -1,5 +1,5 @@
 export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
-export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/dog"  # 改名为更通用的TRAIN_DATA_DIR
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/dog"  # 
 export OUTPUT_DIR="trained-sd3"
 
 
