@@ -27,7 +27,7 @@ mpiexec \
   --output_dir "$OUTPUT_DIR" \
   --resolution 512 \
   --deepspeed_config ./ds_config.json \
-  --train_batch_size 4 \
-  --max_train_steps 1000 \
-  --validation_steps 100 \
+  --train_batch_size 12 \
+  --max_train_steps 6 \
+  --validation_steps 50 \
   --checkpointing_steps 500 \
