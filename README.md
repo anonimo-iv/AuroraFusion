@@ -1,1 +1,1 @@
-## Speedup diffusion model training on multiple Supercomputers
+## Speedup diffusion model training / inference on multiple Supercomputers
