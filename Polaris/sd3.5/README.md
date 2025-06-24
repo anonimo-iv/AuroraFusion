@@ -91,7 +91,7 @@ Now, we can launch training using :
 
 ```bash
 export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
-export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/dog"  # 改名为更通用的TRAIN_DATA_DIR
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/dog"  # 
 export OUTPUT_DIR="trained-sd3"
 
 accelerate launch --num_processes=4 train_uncondition_sd3.py \
@@ -117,8 +117,8 @@ Launch the training script `train_uncon_sd.sh` with deepspeed command
 
 ```bash
 export MODEL_NAME="stabilityai/stable-diffusion-3.5-medium"
-export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/train"  # 改名为更通用的TRAIN_DATA_DIR
-export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/val"  # 验证集路径
+export TRAIN_DATA_DIR="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/train"  # 
+export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/diffusers/workspace/sd3_lora_colab/CT_Brain/val"  # 
 export OUTPUT_DIR="trained-sd3"
 
 deepspeed --include localhost:0,1,2,3 --master_port=29501 train_uncondition_sd3_ds.py \
