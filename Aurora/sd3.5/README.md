@@ -30,6 +30,14 @@ pip install -r requirements.txt
 
 Setup deepspeed configuration in the file `ds_config.json`
 
-Launch the training script `train.sh` with deepspeed command
+Launch the training script `train_ds.sh` with deepspeed command
+
+
+### train with FSDP1
+
+Launch the training script `train_fsdp.sh` 
+
+
+
 
 
