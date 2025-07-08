@@ -12,20 +12,8 @@ import socket
 import numpy as np
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import (
-    FullStateDictConfig,
-    StateDictType,
-    ShardingStrategy,
-    MixedPrecision,
-    CPUOffload,
-    BackwardPrefetch,
-)
-from torch.distributed.fsdp.wrap import (
-    transformer_auto_wrap_policy,
-    size_based_auto_wrap_policy,
-)
-from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.cuda.amp import GradScaler
 import transformers
 from torch.utils.data.distributed import DistributedSampler
 from huggingface_hub import create_repo, upload_folder
@@ -36,7 +24,6 @@ from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 from mpi4py import MPI
-from functools import partial
 
 # Intel GPU specific imports
 try:
@@ -68,7 +55,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def parse_args(input_args=None):
-    parser = argparse.ArgumentParser(description="Unconditional SD3 Training Script with FSDP2 on Aurora")
+    parser = argparse.ArgumentParser(description="Unconditional SD3 Training Script with DDP on Aurora")
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
@@ -222,19 +209,7 @@ def parse_args(input_args=None):
     parser.add_argument("--push_to_hub", action="store_true", help="Push to Hub")
     parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training")
     
-    # FSDP specific arguments
-    parser.add_argument(
-        "--fsdp_sharding_strategy",
-        type=str,
-        default="SHARD_GRAD_OP",
-        choices=["FULL_SHARD", "SHARD_GRAD_OP", "NO_SHARD", "HYBRID_SHARD"],
-        help="FSDP sharding strategy",
-    )
-    parser.add_argument(
-        "--fsdp_cpu_offload",
-        action="store_true",
-        help="Enable CPU offloading for FSDP",
-    )
+    # DDP specific arguments (simplified from FSDP)
     parser.add_argument(
         "--mixed_precision",
         type=str,
@@ -303,12 +278,6 @@ def parse_args(input_args=None):
         default=500,
         help="Learning rate warmup steps",
     )
-    parser.add_argument(
-        "--fsdp_min_num_params",
-        type=int,
-        default=1e8,
-        help="FSDP minimum number of parameters for wrapping",
-    )
     
     # Intel GPU specific
     parser.add_argument(
@@ -324,23 +293,6 @@ def parse_args(input_args=None):
         raise ValueError("Specify either `--dataset_name` or `--train_data_dir`")
 
     return args
-
-
-def get_fsdp_mixed_precision(dtype_str, device_type='xpu'):
-    """Configure FSDP mixed precision for XPU"""
-    if dtype_str == "fp16":
-        dtype = torch.float16
-    elif dtype_str == "bf16":
-        dtype = torch.bfloat16
-    else:
-        return None
-    
-    return MixedPrecision(
-        param_dtype=dtype,
-        reduce_dtype=dtype,
-        buffer_dtype=dtype,
-        cast_forward_inputs=True,
-    )
 
 
 def get_weight_dtype(mixed_precision):
@@ -519,7 +471,7 @@ def log_validation(transformer, args, rank, epoch, vae, noise_scheduler, weight_
                         'pooler_output': torch.zeros((batch_size, 2048), dtype=self.dtype, device=self.device)
                     })()
             
-            # Unwrap transformer from FSDP for inference
+            # Unwrap transformer from DDP for inference
             unwrapped_transformer = transformer.module if hasattr(transformer, 'module') else transformer
             
             # Create pipeline
@@ -697,103 +649,47 @@ def setup_distributed():
     
     return rank, world_size, local_rank
 
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.api import StateDictType, FullStateDictConfig
 
 def save_checkpoint(model, optimizer, lr_scheduler, global_step, epoch, args, best_val_loss):
-    """Save FSDP + IPEX optimized model checkpoint"""
+    """Save DDP model checkpoint (simpler than FSDP)"""
+    if dist.get_rank() != 0:
+        return
+        
     save_dir = os.path.join(args.output_dir, f"checkpoint-{global_step}")
     os.makedirs(save_dir, exist_ok=True)
-
-    # Use full state dict config and unwrap model properly
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-
-    try:
-        with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-            state_dict = model.state_dict()
-    except AttributeError as e:
-        # IPEX-wrapped model may not work with FSDP.state_dict_type
-        # Try removing IPEX wrapper if necessary or unwrap manually
-        logger.error(f"Failed to get FSDP state_dict: {e}")
-        return
-
-    if dist.get_rank() == 0:
-        # Save model
-        model_path = os.path.join(save_dir, "model.safetensors")
-        torch.save(state_dict, model_path)
-
-        # Save optimizer, scheduler, and training states
-        torch.save(optimizer.state_dict(), os.path.join(save_dir, "optimizer.pt"))
-        torch.save(lr_scheduler.state_dict(), os.path.join(save_dir, "scheduler.pt"))
-        torch.save({
-            'global_step': global_step,
-            'epoch': epoch,
-            'best_val_loss': best_val_loss,
-        }, os.path.join(save_dir, "training_state.pt"))
-
-        logger.info(f"Checkpoint saved to {save_dir}")
-
-    dist.barrier()
-
-# def save_checkpoint(transformer, optimizer, lr_scheduler, global_step, epoch, args, best_val_loss):
-#     """Save FSDP checkpoint"""
-#     save_dir = os.path.join(args.output_dir, f"checkpoint-{global_step}")
-#     os.makedirs(save_dir, exist_ok=True)
     
-#     # Configure saving policy
-#     save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    # Save model state (unwrap from DDP)
+    model_to_save = model.module if hasattr(model, 'module') else model
+    torch.save(model_to_save.state_dict(), os.path.join(save_dir, "model.safetensors"))
     
-#     with FSDP.state_dict_type(
-#         transformer,
-#         StateDictType.FULL_STATE_DICT,
-#         save_policy,
-#     ):
-#         state_dict = transformer.state_dict()
-        
-#         # Only save on rank 0
-#         if dist.get_rank() == 0:
-#             # Save model state
-#             torch.save(state_dict, os.path.join(save_dir, "model.safetensors"))
-            
-#             # Save optimizer state
-#             optimizer_state = optimizer.state_dict()
-#             torch.save(optimizer_state, os.path.join(save_dir, "optimizer.pt"))
-            
-#             # Save scheduler state
-#             scheduler_state = lr_scheduler.state_dict()
-#             torch.save(scheduler_state, os.path.join(save_dir, "scheduler.pt"))
-            
-#             # Save training state
-#             training_state = {
-#                 'global_step': global_step,
-#                 'epoch': epoch,
-#                 'best_val_loss': best_val_loss,
-#             }
-#             torch.save(training_state, os.path.join(save_dir, "training_state.pt"))
-            
-#             logger.info(f"Saved checkpoint at step {global_step}")
+    # Save optimizer state
+    torch.save(optimizer.state_dict(), os.path.join(save_dir, "optimizer.pt"))
     
-#     dist.barrier()
+    # Save scheduler state
+    torch.save(lr_scheduler.state_dict(), os.path.join(save_dir, "scheduler.pt"))
+    
+    # Save training state
+    training_state = {
+        'global_step': global_step,
+        'epoch': epoch,
+        'best_val_loss': best_val_loss,
+    }
+    torch.save(training_state, os.path.join(save_dir, "training_state.pt"))
+    
+    logger.info(f"Saved checkpoint at step {global_step}")
 
 
-def load_checkpoint(transformer, optimizer, lr_scheduler, checkpoint_path):
-    """Load FSDP checkpoint"""
+def load_checkpoint(model, optimizer, lr_scheduler, checkpoint_path):
+    """Load DDP checkpoint (simpler than FSDP)"""
     logger.info(f"Loading checkpoint from {checkpoint_path}")
     
-    # Configure loading policy
-    load_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    
-    with FSDP.state_dict_type(
-        transformer,
-        StateDictType.FULL_STATE_DICT,
-        load_policy,
-    ):
-        # Load model state
-        model_state = torch.load(
-            os.path.join(checkpoint_path, "model.safetensors"),
-            map_location='cpu'
-        )
-        transformer.load_state_dict(model_state)
+    # Load model state
+    model_state = torch.load(
+        os.path.join(checkpoint_path, "model.safetensors"),
+        map_location='cpu'
+    )
+    model_to_load = model.module if hasattr(model, 'module') else model
+    model_to_load.load_state_dict(model_state)
     
     # Load optimizer state
     if os.path.exists(os.path.join(checkpoint_path, "optimizer.pt")):
@@ -864,6 +760,7 @@ def main():
         variant=args.variant,
         torch_dtype=weight_dtype
     )
+    # transformer.to(device)
 
     # Load and optimize VAE with IPEX
     vae = AutoencoderKL.from_pretrained(
@@ -884,56 +781,7 @@ def main():
     if args.gradient_checkpointing:
         transformer.enable_gradient_checkpointing()
     
-    if IPEX_AVAILABLE and args.use_ipex_optimize:
-        logger.info("Applying IPEX optimization to transformer...")
-        transformer.to(device, dtype=weight_dtype)
-        transformer = ipex.optimize(transformer, dtype=weight_dtype)
-        # transformer, optimizer = ipex.optimize(model, optimizer=optimizer)
-    
-    # Configure FSDP
-    sharding_strategy_map = {
-        "FULL_SHARD": ShardingStrategy.FULL_SHARD,
-        "SHARD_GRAD_OP": ShardingStrategy.SHARD_GRAD_OP,
-        "NO_SHARD": ShardingStrategy.NO_SHARD,
-        "HYBRID_SHARD": ShardingStrategy.HYBRID_SHARD,
-    }
-    sharding_strategy = sharding_strategy_map[args.fsdp_sharding_strategy]
-    
-    # Auto wrap policy for transformer blocks
-    transformer_cls_to_wrap = SD3Transformer2DModel.__class__
-    auto_wrap_policy = partial(
-        transformer_auto_wrap_policy,
-        transformer_layer_cls={transformer_cls_to_wrap},
-    )
-    
-    # Alternatively, use size-based wrapping
-    # auto_wrap_policy = partial(
-    #     size_based_auto_wrap_policy,
-    #     min_num_params=args.fsdp_min_num_params,
-    # )
-    problematic_module=transformer.pos_embed
-    
-    # Mixed precision config
-    mixed_precision_policy = get_fsdp_mixed_precision(args.mixed_precision)
-    
-    # CPU offload config
-    cpu_offload = CPUOffload(offload_params=True) if args.fsdp_cpu_offload else None
-    
 
-    # Wrap model with FSDP
-    transformer = FSDP(
-        transformer,
-        sharding_strategy=sharding_strategy,
-        auto_wrap_policy=auto_wrap_policy,
-        mixed_precision=mixed_precision_policy,
-        cpu_offload=cpu_offload,
-        device_id=device,
-        backward_prefetch= BackwardPrefetch.BACKWARD_POST,
-        sync_module_states=True,
-        limit_all_gathers=True,
-        use_orig_params=True,  # Important for transformers
-        ignored_modules=[problematic_module],  # Ignore problematic module
-    )
     
     # Create optimizer
     optimizer = torch.optim.AdamW(
@@ -943,6 +791,27 @@ def main():
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
+
+    transformer.to(device, dtype=weight_dtype)
+    if args.use_ipex_optimize and IPEX_AVAILABLE :
+        logger.info("Applying IPEX optimization to transformer...")
+        # transformer.to(device, dtype=weight_dtype)
+        transformer.train()
+        # transformer = ipex.optimize(transformer, dtype=weight_dtype)
+        transformer, optimizer = ipex.optimize(transformer, optimizer=optimizer,dtype=weight_dtype, level="O1")  # Mixed precision level)# Target dtype for compute 
+
+    # Wrap model with DDP
+    if world_size > 1:
+        transformer = DDP(
+            transformer,
+            device_ids=[local_rank],
+            output_device=local_rank,
+            broadcast_buffers=False,
+            find_unused_parameters=False,
+        )
+        logger.info("Model wrapped with DistributedDataParallel")
+
+
     
     # Create datasets
     train_dataset = UnconditionalImageDataset(
@@ -1020,7 +889,7 @@ def main():
     
     # Initialize tracking
     if rank == 0 and is_wandb_available():
-        wandb.init(project="sd3-unconditional-aurora", config=vars(args))
+        wandb.init(project="sd3-unconditional-aurora-ddp", config=vars(args))
     
     # Training loop
     global_step = 0
@@ -1049,7 +918,7 @@ def main():
     mixed_precision_enabled = weight_dtype != torch.float32
     
     # Create gradient scaler for mixed precision
-    scaler = ShardedGradScaler(enabled=(args.mixed_precision == "fp16"))
+    scaler = GradScaler(enabled=(args.mixed_precision == "fp16"))
 
     for epoch in range(args.num_train_epochs):
         transformer.train()

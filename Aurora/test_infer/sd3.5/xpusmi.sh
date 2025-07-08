@@ -1,0 +1,1 @@
+xpu-smi dump -d 0 -t 0,1 -m 0,5,18,22 --ims 30  --file sd2_ov_30ms.txt

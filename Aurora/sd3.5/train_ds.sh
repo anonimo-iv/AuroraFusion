@@ -4,6 +4,7 @@ export TRAIN_DATA_DIR="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/train" 
 export TRAIN_DATA_DIR_VAL="/home/binkma/bm_dif/AuroraFusion/Dataset/CT_Brain/val"  # validation data directory
 export OUTPUT_DIR="trained-sd3"
 export PYTORCH_ENABLE_XPU_FALLBACK=1
+export CCL_ALLGATHERV_MONOLITHIC_PIPELINE_KERNEL=0
 
 # cat $PBS_NODEFILE > hostfile
 # sed -e 's/$/ slots=12/' -i hostfile
@@ -28,7 +29,7 @@ mpiexec \
   --resolution 512 \
   --deepspeed_config ./ds_config.json \
   --train_batch_size 60 \
-  --max_train_steps 40 \
-  --validation_steps 50 \
+  --max_train_steps 50 \
+  --validation_steps 60 \
   --checkpointing_steps 500 \
-  -use_ipex_optimize \
+  # -use_ipex_optimize \

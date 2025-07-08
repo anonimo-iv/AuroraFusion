@@ -32,10 +32,10 @@ export PYTORCH_ENABLE_XPU_FALLBACK=1
 
 
 # FSDP2 specific parameters
-BATCH_SIZE=60 #12 tiles on 6 XPUs per node
+BATCH_SIZE=48 #12 tiles on 6 XPUs per node
 GRADIENT_ACCUM_STEPS=1
 LEARNING_RATE=1e-4
-MIXED_PRECISION="bf16"  # or "bf16" or "no"
+MIXED_PRECISION="no"  # or "bf16" or "no"
 SHARDING_STRATEGY="SHARD_GRAD_OP"  # or "SHARD_GRAD_OP", "NO_SHARD", "HYBRID_SHARD"
 
 # Calculate number of GPUs
@@ -52,12 +52,11 @@ echo "Running on $NNODES nodes with $NTOTRANKS total XPUs"
 mpiexec -n "${NGPUS}" \
     --ppn "${NGPU_PER_HOST}" \
     --hostfile="${PBS_NODEFILE}" \
-    python train_sd3_unconditional_aurora_fsdp.py \
+    python train_sd3_unconditional_aurora_ddp.py \
     --pretrained_model_name_or_path $MODEL_NAME \
     --train_data_dir $TRAIN_DATA_DIR \
     --output_dir $OUTPUT_DIR \
     --val_data_dir $VAL_DATA_DIR \
-    --fsdp_sharding_strategy $SHARDING_STRATEGY \
     --resolution 512 \
     --center_crop \
     --random_flip \
@@ -65,11 +64,11 @@ mpiexec -n "${NGPUS}" \
     --gradient_checkpointing \
     --mixed_precision $MIXED_PRECISION \
     --learning_rate $LEARNING_RATE \
+    --gradient_accumulation_steps $GRADIENT_ACCUM_STEPS \
     --checkpointing_steps 500 \
     --validation_steps 100 \
     --seed 42 \
     --max_train_steps 50 \
-    --use_ipex_optimize &> fsdp_ipex.log
-    # --dataloader_num_workers 4
+    --use_ipex_optimize  
 
 echo "Training completed!"

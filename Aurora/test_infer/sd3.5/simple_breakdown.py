@@ -316,7 +316,7 @@ def main():
     from diffusers import StableDiffusion3Pipeline
     
     # Configuration
-    device = 'cpu'  # or 'cpu'
+    device = 'xpu'  # or 'cpu'
     model_id = "stabilityai/stable-diffusion-3.5-medium"
     num_runs = 3
     num_steps = 20
@@ -338,7 +338,7 @@ def main():
     
     print("Applying IPEX optimizations...")
     pipeline.transformer.eval()
-    pipeline.transformer = ipex.optimize(pipeline.transfoåårmer, dtype=torch.bfloat16, level="O1")
+    pipeline.transformer = ipex.optimize(pipeline.transformer, dtype=torch.bfloat16, level="O1")
     
     if hasattr(pipeline, 'vae'):
         pipeline.vae.eval()
