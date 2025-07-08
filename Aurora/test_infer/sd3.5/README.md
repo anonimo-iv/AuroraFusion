@@ -9,7 +9,7 @@ Multi-GPU Stable Diffusion 3.5 inference optimized for Aurora supercomputer with
 | Method | Device | Avg Time | Speedup |
 |--------|--------|----------|---------|
 | OpenVINO CPU | CPU | ~14.49s | 1.0x |
-| IPEX GPU | Intel GPU | ~8.12s | **1.78** |
+| IPEX GPU | Intel GPU | ~8.12s | **1.78x** |
 | OpenVINO GPU | Intel GPU | ~2.34s | **6.19x** |
 | OpenVINO GPU Pipeline | Intel GPU | ~2.37s | **6.19x** |
 
